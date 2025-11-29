@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <link rel="stylesheet" href="styles.css">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Práctica Cripto - Frontend</title>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+
+  <style>
+    body{font-family:system-ui,Segoe UI,Roboto,Arial;margin:24px;max-width:900px}
+    input, textarea{width:100%;padding:8px;margin:6px 0}
+    button{padding:8px 12px;margin:6px 6px 6px 0}
+    pre{background:#f4f4f4;padding:12px; white-space:pre-wrap}
+    section{border:1px solid #ddd;padding:12px;margin:12px 0;border-radius:8px}
+  </style>
+</head>
+<body>
+  <h1>Práctica Cifrado</h1>
+  <p>Demostración de AES (CryptoJS), SHA-256 (CryptoJS) y RSA (WebCrypto API).</p>
+
+  <section>
+    <h2>AES (CryptoJS) — Simétrico</h2>
+    <label>Texto plano</label>
+    <input id="aesPlain" placeholder="Texto a cifrar" />
+    <label>Clave/Frase (password)</label>
+    <input id="aesPass" placeholder="Clave AES (frase)" />
+    <div>
+      <button id="btnAesEnc">Cifrar AES</button>
+      <button id="btnAesDec">Descifrar AES</button>
+    </div>
+    <label>Resultado (ciphertext / plaintext)</label>
+    <pre id="aesOut"></pre>
+  </section>
+
+  <section>
+    <h2>Hash SHA-256</h2>
+    <input id="hashInput" placeholder="Texto a hashear" />
+    <div>
+      <button id="btnHash">Generar SHA-256</button>
+    </div>
+    <label>SHA-256 (hex)</label>
+    <pre id="hashOut"></pre>
+  </section>
+
+  <section>
+    <h2>RSA (WebCrypto) — Asimétrico</h2>
+    <div>
+      <button id="genRsa">Generar par RSA (RSA-OAEP 2048)</button>
+      <button id="exportPub">Exportar Public PEM</button>
+      <button id="exportPriv">Exportar Private PEM</button>
+    </div>
+
+    <label>Texto para cifrar con RSA</label>
+    <input id="rsaPlain" placeholder="Texto para cifrar (RSA)" />
+    <div>
+      <button id="btnRsaEnc">Cifrar con Public</button>
+      <button id="btnRsaDec">Descifrar con Private</button>
+    </div>
+
+    <label>Clave pública / privada (PEM)</label>
+    <textarea id="rsaKeys" rows="8" placeholder="Aquí aparecerán las claves PEM"></textarea>
+
+    <label>RSA ciphertext (Base64)</label>
+    <pre id="rsaOut"></pre>
+  </section>
+
+  <script>
+  function ab2str(buf){ return new TextDecoder().decode(buf); }
+  function str2ab(str){ return new TextEncoder().encode(str); }
+  function buf2b64(buf){ return btoa(String.fromCharCode(...new Uint8Array(buf))); }
+  function b642buf(b64){ const bin = atob(b64); const len = bin.length; const bytes = new Uint8Array(len); for(let i=0;i<len;i++) bytes[i]=bin.charCodeAt(i); return bytes.buffer; }
+
+  // PEM helpers
+  function toPem(buffer, label){
+    const b64 = buf2b64(buffer);
+    const lines = b64.match(/.{1,64}/g).join('\\n');
+    return `-----BEGIN ${label}-----\\n${lines}\\n-----END ${label}-----`;
+  }
+  function parsePem(pem){
+    const lines = pem.trim().split(/\\r?\\n/).filter(l => !l.includes('BEGIN') && !l.includes('END'));
+    const b64 = lines.join('');
+    return b642buf(b64);
+  }
+
+  document.getElementById('btnAesEnc').onclick = () => {
+    const text = document.getElementById('aesPlain').value || '';
+    const pass = document.getElementById('aesPass').value || '';
+    if(!pass){ alert('Introduce una clave para AES'); return; }
+    // AES-GCM no lo hace CryptoJS directamente con authTag separada; usamos AES-CBC con HMAC-simulación para demo sencillo
+    // Usaremos CryptoJS AES con passphrase (PBKDF2 internamente) — para demo educativo.
+    const cipher = CryptoJS.AES.encrypt(text, pass).toString();
+    document.getElementById('aesOut').textContent = cipher;
+  };
+  document.getElementById('btnAesDec').onclick = () => {
+    const cipher = document.getElementById('aesOut').textContent || '';
+    const pass = document.getElementById('aesPass').value || '';
+    if(!cipher){ alert('No hay ciphertext en el área de resultado'); return; }
+    const bytes = CryptoJS.AES.decrypt(cipher, pass);
+    const plain = bytes.toString(CryptoJS.enc.Utf8);
+    document.getElementById('aesOut').textContent = plain || 'Clave incorrecta o datos dañados';
+  };
+
+  document.getElementById('btnHash').onclick = () => {
+    const txt = document.getElementById('hashInput').value || '';
+    const hash = CryptoJS.SHA256(txt).toString(CryptoJS.enc.Hex);
+    document.getElementById('hashOut').textContent = hash;
+  };
+
+  let rsaKeyPair = null;
+
+  document.getElementById('genRsa').onclick = async () => {
+    rsaKeyPair = await window.crypto.subtle.generateKey(
+      { name: "RSA-OAEP", modulusLength: 2048, publicExponent: new Uint8Array([1,0,1]), hash: "SHA-256" },
+      true,
+      ["encrypt","decrypt"]
+    );
+    document.getElementById('rsaKeys').value = 'Par de claves generado. Usa "Exportar Public PEM" y "Exportar Private PEM".';
+  };
+
+  document.getElementById('exportPub').onclick = async () => {
+    if(!rsaKeyPair){ alert('Genera primero el par RSA'); return; }
+    const spki = await window.crypto.subtle.exportKey('spki', rsaKeyPair.publicKey);
+    const pem = toPem(spki, 'PUBLIC KEY');
+    document.getElementById('rsaKeys').value = pem;
+  };
+
+  document.getElementById('exportPriv').onclick = async () => {
+    if(!rsaKeyPair){ alert('Genera primero el par RSA'); return; }
+    const pk8 = await window.crypto.subtle.exportKey('pkcs8', rsaKeyPair.privateKey);
+    const pem = toPem(pk8, 'PRIVATE KEY');
+    document.getElementById('rsaKeys').value = pem;
+  };
+
+  async function importPublicKeyFromPem(pem){
+    const buf = parsePem(pem);
+    return await window.crypto.subtle.importKey('spki', buf, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["encrypt"]);
+  }
+  async function importPrivateKeyFromPem(pem){
+    const buf = parsePem(pem);
+    return await window.crypto.subtle.importKey('pkcs8', buf, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["decrypt"]);
+  }
+
+  document.getElementById('btnRsaEnc').onclick = async () => {
+    const plain = document.getElementById('rsaPlain').value || '';
+    const pem = document.getElementById('rsaKeys').value || '';
+    if(!pem.includes('PUBLIC KEY')){ alert('Pega la clave pública PEM en el área de claves (o exporta)'); return; }
+    try{
+      const pub = await importPublicKeyFromPem(pem);
+      const ct = await window.crypto.subtle.encrypt({ name: "RSA-OAEP" }, pub, str2ab(plain));
+      const b64 = buf2b64(ct);
+      document.getElementById('rsaOut').textContent = b64;
+    } catch(e){
+      document.getElementById('rsaOut').textContent = 'Error cifrando: ' + e;
+    }
+  };
+
+  document.getElementById('btnRsaDec').onclick = async () => {
+    const pem = document.getElementById('rsaKeys').value || '';
+    const b64 = document.getElementById('rsaOut').textContent || '';
+    if(!pem.includes('PRIVATE KEY')){ alert('Pega la clave privada PEM en el área de claves'); return; }
+    if(!b64){ alert('No hay ciphertext (Base64) para descifrar'); return; }
+    try{
+      const priv = await importPrivateKeyFromPem(pem);
+      const buf = b642buf(b64);
+      const pt = await window.crypto.subtle.decrypt({ name: "RSA-OAEP" }, priv, buf);
+      const plain = ab2str(pt);
+      document.getElementById('rsaOut').textContent = plain;
+    } catch(e){
+      document.getElementById('rsaOut').textContent = 'Error descifrando: ' + e;
+    }
+  };
+
+  </script>
+</body>
+</html>
